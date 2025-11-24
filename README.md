@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Insurance Chatbot
 
 An end-to-end insurance chatbot application with RAG (Retrieval-Augmented Generation) that supports both text and audio interactions. The chatbot can answer questions about insurance policies (health, car, bike) and suggest relevant policies based on user queries.
@@ -353,3 +354,7 @@ Feel free to extend this project with:
 - User authentication
 - Database integration for policies
 
+=======
+# CIB_HackIdea
+CIB Hackathon repo
+>>>>>>> 2097657607b8521e97a2e137be726ad862b4b7ed
