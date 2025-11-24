@@ -1,0 +1,3 @@
+# This directory stores the FAISS vector index and metadata
+# Files will be generated when running: python -m rag.ingest
+
