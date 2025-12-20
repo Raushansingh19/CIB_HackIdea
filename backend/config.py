@@ -36,7 +36,8 @@ class Settings(BaseSettings):
     LLM_TEMPERATURE: float = 0.0  # Low temperature for factual, non-hallucinating responses
     
     # STT (Speech-to-Text) Configuration
-    STT_PROVIDER: str = "mock"  # Options: "mock", "openai-whisper", "google-speech"
+    # Auto-detect: Use Whisper if OpenAI API key is available, otherwise use mock
+    STT_PROVIDER: str = "auto"  # Options: "auto", "mock", "openai-whisper", "google-speech"
     STT_API_KEY: Optional[str] = None
     
     # TTS (Text-to-Speech) Configuration

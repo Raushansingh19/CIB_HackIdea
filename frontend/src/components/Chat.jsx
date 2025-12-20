@@ -27,6 +27,9 @@ function Chat() {
   // Text input state
   const [inputText, setInputText] = useState('')
   
+  // Session ID for conversation continuity
+  const [sessionId, setSessionId] = useState(null)
+  
   // Reference to scroll to bottom of chat
   const messagesEndRef = useRef(null)
   
@@ -64,7 +67,7 @@ function Chat() {
         },
         body: JSON.stringify({
           message: message,
-          session_id: null, // Could implement session tracking
+          session_id: sessionId, // Use stored session ID for conversation continuity
           policy_type: null, // Could extract from UI filters
           region: null
         })
@@ -75,6 +78,11 @@ function Chat() {
       }
       
       const data = await response.json()
+      
+      // Store session ID for conversation continuity
+      if (data.session_id && !sessionId) {
+        setSessionId(data.session_id)
+      }
       
       // Add bot response to chat
       const botMessage = {
@@ -88,14 +96,44 @@ function Chat() {
       
     } catch (error) {
       console.error('Error sending message:', error)
-      // Add helpful error message to chat
-      let errorText = 'I\'m having trouble processing your request right now. '
+      
+      // Provide helpful response based on error type
+      let errorText = ''
       if (error.message && error.message.includes('Failed to fetch')) {
-        errorText += 'Please check if the backend server is running and try again.'
+        // Backend not reachable - provide helpful guidance
+        errorText = `I'm having trouble connecting to the server right now. 
+
+Please check:
+• Is the backend server running? (Should be on http://localhost:8000)
+• Try refreshing the page
+
+In the meantime, I can help you with:
+• **Health Insurance**: Coverage for hospitalization, pre-existing conditions, age-specific plans
+• **Car Insurance**: Liability, collision, comprehensive coverage options
+• **Bike Insurance**: Motorcycle and bicycle coverage options
+
+Once the connection is restored, feel free to ask me specific questions!`
       } else if (error.message && error.message.includes('500')) {
-        errorText += 'The server encountered an issue. Please try rephrasing your question or contact support.'
+        // Server error - provide helpful guidance
+        errorText = `I encountered an issue processing your request. 
+
+Let me help you with insurance information:
+
+• **Health Insurance**: For questions about coverage, premiums, waiting periods, or age-specific plans
+• **Car Insurance**: For questions about liability limits, deductibles, or optional coverage
+• **Bike Insurance**: For questions about motorcycle or bicycle coverage
+
+Please try rephrasing your question, or ask about a specific insurance type!`
       } else {
-        errorText += 'Please try again in a moment or rephrase your question.'
+        // Other errors - provide general helpful response
+        errorText = `I'd be happy to help you with insurance questions!
+
+Here's what I can assist with:
+• **Health Insurance**: Coverage options, eligibility, waiting periods, age considerations
+• **Car Insurance**: Coverage types, liability limits, deductibles, optional features
+• **Bike Insurance**: Motorcycle and bicycle coverage, theft protection, liability
+
+What type of insurance are you interested in?`
       }
       
       const errorMessage = {
@@ -118,24 +156,34 @@ function Chat() {
    * the backend returns a response with transcript and TTS audio.
    */
   const handleAudioResponse = (response) => {
-    // Add user transcript as a message
-    const userMessage = {
-      from: 'user',
-      type: 'audio',
-      text: response.transcript
+    console.log('Audio response received:', response)
+    
+    // Store session ID if provided
+    if (response.session_id && !sessionId) {
+      setSessionId(response.session_id)
+    }
+    
+    // Add user transcript as a message (show what was transcribed)
+    if (response.transcript && response.transcript.trim()) {
+      const userMessage = {
+        from: 'user',
+        type: 'audio',
+        text: response.transcript
+      }
+      setMessages(prev => [...prev, userMessage])
     }
     
     // Add bot response with audio
     const botMessage = {
       from: 'bot',
       type: 'audio',
-      text: response.answer,
-      audioUrl: `${API_BASE_URL}${response.audio_url}`,
+      text: response.answer || 'I received your audio message.',
+      audioUrl: response.audio_url ? `${API_BASE_URL}${response.audio_url}` : null,
       suggestions: response.policy_suggestions || [],
       sources: response.sources || []
     }
     
-    setMessages(prev => [...prev, userMessage, botMessage])
+    setMessages(prev => [...prev, botMessage])
   }
   
   /**

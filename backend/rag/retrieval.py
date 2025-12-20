@@ -149,6 +149,8 @@ class PolicyRetriever:
         """
         Retrieve top-k relevant chunks for a query.
         
+        This method NEVER raises exceptions - it always returns a list (possibly empty).
+        
         Process:
         1. Embed the query
         2. Search FAISS index for top-k similar chunks
@@ -163,75 +165,121 @@ class PolicyRetriever:
             
         Returns:
             List of RetrievedChunk objects, sorted by similarity (highest first)
+            Returns empty list if any error occurs
         """
-        # Embed the query
-        query_embedding = self.embedding_model.encode(
-            [query],
-            show_progress_bar=False,
-            convert_to_numpy=True
-        ).astype('float32')
-        
-        # Normalize for cosine similarity (must match how index was built)
-        faiss.normalize_L2(query_embedding)
-        
-        # Search for top-k results (we retrieve more if filtering is needed)
-        search_k = k * 3 if (policy_type or region) else k
-        
-        # Perform similarity search
-        distances, indices = self.index.search(query_embedding, min(search_k, self.index.ntotal))
-        
-        # Build results with metadata
-        results = []
-        for i, (distance, idx) in enumerate(zip(distances[0], indices[0])):
-            if idx == -1:  # FAISS returns -1 for invalid indices
-                continue
+        try:
+            if not query or not query.strip():
+                print("⚠️ Empty query received by retriever")
+                return []
+
+            if not self.index or not self.metadata or not self.embedding_model:
+                print("⚠️ Retriever not properly initialized")
+                return []
+
+            # Embed the query
+            query_embedding = self.embedding_model.encode(
+                [query],
+                show_progress_bar=False,
+                convert_to_numpy=True
+            ).astype('float32')
             
-            chunk_metadata = self.metadata[idx]
+            # Normalize for cosine similarity (must match how index was built)
+            faiss.normalize_L2(query_embedding)
             
-            # Apply filters if specified
-            if policy_type and chunk_metadata["policy_type"] != policy_type:
-                continue
-            if region and chunk_metadata["region"] != region:
-                continue
+            # Search for top-k results (we retrieve more if filtering is needed)
+            search_k = min(k * 4 if (policy_type or region) else k * 2, max(1, self.index.ntotal))
             
-            # Convert distance to similarity score (for L2: lower is better, for cosine: higher is better)
-            # Since we normalized, we're using cosine similarity
-            # FAISS L2 on normalized vectors = 2 - 2*cosine_similarity
-            # So similarity = 1 - (distance / 2)
-            similarity = 1 - (distance / 2) if distance <= 2 else 0
+            # Perform similarity search
+            distances, indices = self.index.search(query_embedding, search_k)
             
-            retrieved_chunk = RetrievedChunk(
-                text=chunk_metadata["text"],
-                policy_id=chunk_metadata["policy_id"],
-                policy_type=chunk_metadata["policy_type"],
-                region=chunk_metadata["region"],
-                clause_type=chunk_metadata["clause_type"],
-                similarity_score=similarity,
-                metadata=chunk_metadata
-            )
-            results.append(retrieved_chunk)
+            # Build results with metadata
+            results = []
+            for distance, idx in zip(distances[0], indices[0]):
+                if idx == -1:  # FAISS returns -1 for invalid indices
+                    continue
+                
+                # Defensive metadata access
+                if idx >= len(self.metadata):
+                    continue
+                    
+                chunk_metadata = self.metadata[idx] or {}
+                text = chunk_metadata.get("text") or ""
+                if not text.strip():
+                    # Skip empty chunks but keep searching
+                    continue
+                
+                # Apply filters if specified
+                if policy_type and chunk_metadata.get("policy_type") != policy_type:
+                    continue
+                if region and chunk_metadata.get("region") != region:
+                    continue
+                
+                # Convert distance to similarity score (for L2: lower is better, for cosine: higher is better)
+                # Since we normalized, we're using cosine similarity
+                # FAISS L2 on normalized vectors = 2 - 2*cosine_similarity
+                # So similarity = 1 - (distance / 2)
+                similarity = 1 - (distance / 2) if distance <= 2 else 0
+                
+                retrieved_chunk = RetrievedChunk(
+                    text=text,
+                    policy_id=chunk_metadata.get("policy_id", "unknown_policy"),
+                    policy_type=chunk_metadata.get("policy_type", "unknown"),
+                    region=chunk_metadata.get("region", "unspecified"),
+                    clause_type=chunk_metadata.get("clause_type", "general"),
+                    similarity_score=similarity,
+                    metadata=chunk_metadata
+                )
+                results.append(retrieved_chunk)
+                
+                # Stop if we have enough results
+                if len(results) >= k:
+                    break
             
-            # Stop if we have enough results
-            if len(results) >= k:
-                break
-        
-        return results
+            if not results:
+                print("⚠️ Retriever returned zero chunks after filtering")
+            return results
+            
+        except Exception as e:
+            # NEVER raise - always return empty list
+            print(f"⚠️ Error in retrieve_relevant_chunks: {str(e)}")
+            import traceback
+            traceback.print_exc()
+            return []
 
 
 # Global retriever instance (lazy-loaded)
 _retriever_instance = None
+_retriever_available = False
 
 
-def get_retriever() -> PolicyRetriever:
+def get_retriever() -> Optional[PolicyRetriever]:
     """
     Get or create the global retriever instance.
     
     Returns:
-        PolicyRetriever instance
+        PolicyRetriever instance if available, None otherwise
     """
-    global _retriever_instance
+    global _retriever_instance, _retriever_available
+    
+    if _retriever_available:
+        return _retriever_instance
+    
     if _retriever_instance is None:
-        _retriever_instance = PolicyRetriever()
+        try:
+            _retriever_instance = PolicyRetriever()
+            _retriever_available = True
+            print("✅ Retriever initialized successfully")
+        except FileNotFoundError as e:
+            print(f"⚠️ Retriever not available: {str(e)}")
+            print("   System will use general conversation mode")
+            _retriever_instance = None
+            _retriever_available = False
+        except Exception as e:
+            print(f"⚠️ Retriever initialization failed: {str(e)}")
+            print("   System will use general conversation mode")
+            _retriever_instance = None
+            _retriever_available = False
+    
     return _retriever_instance
 
 
@@ -244,6 +292,8 @@ def retrieve_relevant_chunks(
     """
     Convenience function to retrieve chunks.
     
+    This function NEVER raises exceptions - it always returns a list (possibly empty).
+    
     Args:
         query: User's question or search query
         policy_type: Optional filter for policy type
@@ -251,8 +301,19 @@ def retrieve_relevant_chunks(
         k: Number of chunks to retrieve
         
     Returns:
-        List of RetrievedChunk objects
+        List of RetrievedChunk objects (empty list if retrieval fails)
     """
-    retriever = get_retriever()
-    return retriever.retrieve_relevant_chunks(query, policy_type, region, k)
+    try:
+        retriever = get_retriever()
+        if retriever is None:
+            print("⚠️ Retriever not available, returning empty chunks")
+            return []
+        
+        return retriever.retrieve_relevant_chunks(query, policy_type, region, k)
+    except Exception as e:
+        # NEVER raise - always return empty list on any error
+        print(f"⚠️ Retrieval error (returning empty): {str(e)}")
+        import traceback
+        traceback.print_exc()
+        return []
 

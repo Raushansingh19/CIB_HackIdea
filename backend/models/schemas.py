@@ -68,6 +68,7 @@ class TextChatResponse(BaseModel):
         answer: The bot's answer to the user's question
         policy_suggestions: List of up to 3 relevant policy suggestions
         sources: List of source chunks that were used to generate the answer
+        session_id: Session ID for maintaining conversation context
     """
     answer: str = Field(..., description="Bot's answer to the user's question")
     policy_suggestions: List[PolicySuggestion] = Field(
@@ -78,6 +79,7 @@ class TextChatResponse(BaseModel):
         default_factory=list,
         description="Source chunks used to generate the answer"
     )
+    session_id: Optional[str] = Field(None, description="Session ID for conversation tracking")
 
 
 class AudioChatResponse(BaseModel):
@@ -87,6 +89,7 @@ class AudioChatResponse(BaseModel):
     Extends TextChatResponse with audio-specific fields:
         transcript: The transcribed text from the user's audio input
         audio_url: URL or path to the generated TTS audio file
+        session_id: Session ID for maintaining conversation context
     """
     transcript: str = Field(..., description="Transcribed text from user's audio input")
     answer: str = Field(..., description="Bot's answer to the user's question")
@@ -99,4 +102,5 @@ class AudioChatResponse(BaseModel):
         description="Source chunks used to generate the answer"
     )
     audio_url: str = Field(..., description="URL to the generated TTS audio file")
+    session_id: Optional[str] = Field(None, description="Session ID for conversation tracking")
 
